@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Herdrの専用workspaceにCodexの司令塔を起動する。"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import uuid
+
+
+ROOT = Path(__file__).resolve().parent
+
+
+def run(*args):
+    try:
+        result = subprocess.run(args, text=True, capture_output=True, timeout=45)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"{args[0]}を実行できませんでした: {error}") from error
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or
+                           f"{args[0]}が終了コード{result.returncode}で失敗しました。")
+    return result.stdout.strip()
+
+
+def dependencies():
+    herdr = os.environ.get("HERDR_BIN_PATH") or shutil.which("herdr")
+    if not herdr or not shutil.which("codex") or not shutil.which("git"):
+        raise RuntimeError("Herdr、Codex CLI、GitをPATHに用意してください。")
+    version = run(herdr, "--version")
+    print(f"Herdr: {version} ({herdr})", flush=True)
+    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", version)
+    if not match or tuple(map(int, match.groups())) < (0, 9, 5):
+        raise RuntimeError("Herdr v0.9.5以上を使用してください。")
+    help_text = run("codex", "--help")
+    if any(flag not in help_text for flag in ("--no-alt-screen", "--add-dir", "--cd")):
+        raise RuntimeError("必要な起動オプションに対応したCodex CLIへ更新してください。")
+    return herdr
+
+
+def api(herdr, *args):
+    output = run(herdr, *args)
+    try:
+        response = json.loads(output)
+        if not isinstance(response, dict) or not isinstance(response.get("result"), dict):
+            raise ValueError("resultがありません")
+        return response["result"]
+    except (ValueError, TypeError) as error:
+        raise RuntimeError("Herdrの応答を確認できません。herdr workspace listで状態を確認してください。") from error
+
+
+def launch(args, herdr):
+    repo = Path(run("git", "-C", str(Path(args.repo).expanduser().resolve()),
+                    "rev-parse", "--show-toplevel"))
+    base = run("git", "-C", str(repo), "rev-parse", "--verify", "HEAD^{commit}")
+    worktrees = (Path(args.worktree_root).expanduser().resolve() if args.worktree_root
+                 else repo.parent / ".worktrees" / repo.name)
+    worktrees.mkdir(parents=True, exist_ok=True)
+    workspace = None
+    pane = None
+    name = "lead-" + uuid.uuid4().hex[:12]
+    try:
+        created = api(herdr, "workspace", "create", "--cwd", str(repo),
+                      "--label", repo.name + " / lead", "--no-focus")
+        workspace_data = created.get("workspace")
+        pane_data = created.get("root_pane")
+        workspace = workspace_data.get("workspace_id") if isinstance(workspace_data, dict) else None
+        pane = pane_data.get("pane_id") if isinstance(pane_data, dict) else None
+        if not isinstance(workspace, str) or not isinstance(pane, str) or not workspace or not pane:
+            raise RuntimeError("Herdr応答のIDが不明です。herdr workspace listで状態を確認してください。")
+        api(herdr, "agent", "start", name, "--kind", "codex", "--pane", pane,
+            "--", "--no-alt-screen", "--cd", str(repo), "--add-dir", str(worktrees))
+        context = json.dumps({"repository": str(repo), "base_commit": base,
+                              "worktree_root": str(worktrees), "workspace_id": workspace,
+                              "orchestrator": name}, ensure_ascii=False)
+        prompt = (
+            "あなたはCodexの司令塔です。まず次の運用指示を読み、herdr --skillで操作仕様を確認してください。\n"
+            f"運用指示: {json.dumps(str(ROOT / 'prompts/orchestrator.md'), ensure_ascii=False)}\n"
+            "ユーザーは今回の依頼の範囲で、worktree、workspace、tab、paneの作成と"
+            "Codex作業者の起動、依頼、進捗確認を追加確認なしで行うことを許可しています。\n"
+            f"起動時のコンテキスト: {context}\n"
+            "以降はユーザーの依頼本文です。\n"
+            + (args.task or "まず依頼を受け付けられることと、現在の作業場所を伝えて待機してください。")
+        )
+        api(herdr, "agent", "prompt", name, prompt)
+    except RuntimeError as error:
+        raise RuntimeError(
+            f"{error}\n作成されたworkspaceは保持します。"
+            f" workspace={workspace or '未確認'}, pane={pane or '未確認'}, agent={name}\n"
+            "herdr workspace listとherdr agent listで状態を確認してください。"
+            "依頼の到達は未確認のため、自動で再送しません。"
+        ) from error
+    print(f"司令塔へ依頼を送信しました。workspace={workspace}, pane={pane}, agent={name}")
+    print(f"表示するには: herdr workspace focus {workspace}")
+    print("送信の成功は作業開始や完了を保証しません。状態と出力を確認してください。")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("doctor", help="依存と実行環境を確認する")
+    lead = sub.add_parser("lead", help="司令塔を起動する")
+    lead.add_argument("repo")
+    lead.add_argument("task", nargs="?", default="")
+    lead.add_argument("--worktree-root")
+    args = parser.parse_args()
+    inside = os.environ.get("HERDR_ENV") == "1"
+    if args.command == "lead" and not inside:
+        parser.error("Herdr内のシェルで実行してください。先にherdrを起動してください。")
+    try:
+        herdr = dependencies()
+        if args.command == "doctor":
+            print("Codex CLIの必要オプション: 確認済み")
+            print(f"Herdr内: {'はい' if inside else 'いいえ（起動はHerdr内で実行してください）'}")
+            return 0 if inside else 1
+        launch(args, herdr)
+        return 0
+    except (RuntimeError, OSError) as error:
+        print(f"my-herdr: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
