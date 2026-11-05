@@ -1,0 +1,22 @@
+# 任意の設定例。既存のconfig.tomlへ必要な項目を統合してください。
+# 起動コマンドは、このファイルをインストールしません。
+
+[terminal]
+new_cwd = "follow"
+
+[ui]
+confirm_close = true
+show_agent_labels_on_pane_borders = true
+
+# prefixキーは利用者の既存設定に従います。
+# pane型で起動し、Herdr管理下のシェルからコマンドを実行します。
+# 一時paneはコマンド終了時に閉じるため、結果の確認後にEnterで閉じます。
+[[keys.command]]
+key = "prefix+g"
+type = "pane"
+command = '''
+node "/absolute/path/to/my-herdr/my-herdr" lead "/absolute/path/to/project"
+printf '\n出力を確認したらEnterで閉じてください。'
+read -r reply
+'''
+description = "Codexの司令塔を起動"
