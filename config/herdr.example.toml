@@ -15,7 +15,7 @@ show_agent_labels_on_pane_borders = true
 key = "prefix+g"
 type = "pane"
 command = '''
-python3 "/absolute/path/to/my-herdr/my-herdr" lead "/absolute/path/to/project"
+node "/absolute/path/to/my-herdr/my-herdr" lead "/absolute/path/to/project"
 printf '\n出力を確認したらEnterで閉じてください。'
 read -r reply
 '''

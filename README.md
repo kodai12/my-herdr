@@ -23,7 +23,7 @@ Herdr自体がタスクを自動で計画する仕組みではありません。
 - Herdr v0.9.5以上
 - ログイン済みのCodex CLI（`--no-alt-screen`、`--cd`、`--add-dir`対応）
 - Git
-- Python 3.8以上（標準ライブラリのみ使用）
+- Node.js 24.12以上（TypeScriptの直接実行に使用）
 
 HerdrとCodexの導入、ログインは利用者側で済ませてください。
 依存確認は`./my-herdr doctor`で行えます。
@@ -32,8 +32,8 @@ doctorはHerdrサーバーを操作しません。
 
 ## 使い方
 
-公開後は、次のURLから取得できます。
-公開前のローカルレビューでは、既に作成されたディレクトリを使ってください。
+次のURLから取得できます。
+PRの変更を確認する場合は、取得後に対象のブランチへ切り替えてください。
 
 ```bash
 git clone https://github.com/kodai12/my-herdr.git
@@ -87,7 +87,7 @@ Herdr内のシェルから、クローン先のコマンドを実行します。
 
 ## 設定と権限
 
-必須のインストール操作はありません。
+TypeScriptをNode.js標準の型除去で直接実行するため、利用時のビルドと`npm install`は不要です。
 `~/.config/herdr/config.toml`、`~/.codex/config.toml`、既存スキル、フックは書き換えません。
 モデルと承認方針は、利用者のCodex設定を引き継ぎます。
 Herdr操作がCodexのサンドボックスや承認設定で制限された場合は、その操作について承認してください。
@@ -153,11 +153,14 @@ herdr agent read <エージェント名> --source recent-unwrapped --lines 120
 CIと同じコマンドでローカル検証できます。
 
 ```bash
-python3 -m unittest discover -s tests -v
+npm ci
+npm run check
+npm test
 git diff --check
 ```
 
-自動テストは実際の一時Gitリポジトリを使い、HerdrとCodexの実行ファイルをテスト用に差し替えます。
+型検査に使うTypeScriptとNode.jsの型定義は開発依存です。
+自動テストはNode.js標準のテストランナーと一時Gitリポジトリを使い、HerdrとCodexの実行ファイルをテスト用に差し替えます。
 起動引数、送信先、Herdr外での拒否、古いバージョン、応答不備、失敗後の保持を確認します。
 実際のHerdrサーバーとCodexの対話画面を検証するものではありません。
 
@@ -171,7 +174,7 @@ git diff --check
 5. 同じリポジトリで司令塔をもう一つ起動し、名前が衝突しないことを確認する。
 6. 承認待ちと失敗時に既存の作業と未コミット変更が保持されることを確認する。
 
-公開前のローカル作成時点では、実環境の受け入れ確認は未実施です。
+実環境の受け入れ確認は未実施です。
 dotfiles側の既存設定の移管も行っていません。
 
 ## 参照
@@ -180,6 +183,7 @@ dotfiles側の既存設定の移管も行っていません。
 - [Herdrの自動化](https://herdr.dev/tui/docs/agent-automation/)
 - [HerdrのCLI](https://herdr.dev/tui/docs/cli-reference/)
 - [Codex CLIの起動オプション](https://developers.openai.com/codex/cli/reference/)
+- [Node.jsによるTypeScriptの直接実行](https://nodejs.org/api/typescript.html)
 
 ## ライセンス
 
